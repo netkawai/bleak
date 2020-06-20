@@ -5,6 +5,21 @@ import asyncio
 
 import pytest
 
+import pkg_resources
+
+# Check if needed testing packages are installed.
+testing_dependencies = {
+                        'alt-pytest-asyncio'
+}
+
+def check_for_missing_dependencies(required: set) -> set:
+    installed = { pkg.key for pkg in pkg_resources.working_set }
+    return required - installed
+
+if check_for_missing_dependencies(testing_dependencies):
+    raise Exception(f'Testing requires {", ".join(testing_dependencies)}.')
+
+
 _IS_CI = os.environ.get("CI", "false").lower() == "true"
 _IS_AZURE_PIPELINES = os.environ.get("SYSTEM_HOSTTYPE", "") == "build"
 
@@ -29,7 +44,9 @@ microbit_volume = ''
 microbit_volume2 = ''
 """Setup locations for OS"""
 if platform.system() == "Linux":
-    raise Exception('Not implemented for Linux yet')
+    user = os.environ['USER']
+    microbit_volume = f'/media/{user}/MICROBIT/'
+    microbit_volume2 = f'/media/{user}/MICROBIT 1/'
 elif platform.system() == "Windows":
     raise Exception('Not implemented for Windows yet')
 elif platform.system() == "Darwin":
