@@ -8,57 +8,122 @@ descriptors of a connected GATT server.
 Created on 2019-03-25 by hbldh <henrik.blidh@nedomkull.com>
 
 """
-import platform
+
+import argparse
 import asyncio
 import logging
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
+
+logger = logging.getLogger(__name__)
 
 
-async def run(address, loop, debug=False):
-    log = logging.getLogger(__name__)
-    if debug:
-        import sys
+async def main(args: argparse.Namespace):
+    logger.info("starting scan...")
 
-        loop.set_debug(True)
-        log.setLevel(logging.DEBUG)
-        h = logging.StreamHandler(sys.stdout)
-        h.setLevel(logging.DEBUG)
-        log.addHandler(h)
+    if args.address:
+        device = await BleakScanner.find_device_by_address(
+            args.address, cb=dict(use_bdaddr=args.macos_use_bdaddr)
+        )
+        if device is None:
+            logger.error("could not find device with address '%s'", args.address)
+            return
+    else:
+        device = await BleakScanner.find_device_by_name(
+            args.name, cb=dict(use_bdaddr=args.macos_use_bdaddr)
+        )
+        if device is None:
+            logger.error("could not find device with name '%s'", args.name)
+            return
 
-    async with BleakClient(address, loop=loop) as client:
-        x = await client.is_connected()
-        log.info("Connected: {0}".format(x))
+    logger.info("connecting to device...")
+
+    async with BleakClient(
+        device,
+        services=args.services,
+    ) as client:
+        logger.info("connected")
 
         for service in client.services:
-            log.info("[Service] {0}: {1}".format(service.uuid, service.description))
+            logger.info("[Service] %s", service)
+
             for char in service.characteristics:
                 if "read" in char.properties:
                     try:
-                        value = bytes(await client.read_gatt_char(char.uuid))
-                    except Exception as e:
-                        value = str(e).encode()
-                else:
-                    value = None
-                log.info(
-                    "\t[Characteristic] {0}: ({1}) | Name: {2}, Value: {3} ".format(
-                        char.uuid, ",".join(char.properties), char.description, value
-                    )
-                )
-                for descriptor in char.descriptors:
-                    value = await client.read_gatt_descriptor(descriptor.handle)
-                    log.info(
-                        "\t\t[Descriptor] {0}: (Handle: {1}) | Value: {2} ".format(
-                            descriptor.uuid, descriptor.handle, bytes(value)
+                        value = await client.read_gatt_char(char.uuid)
+                        logger.info(
+                            "  [Characteristic] %s (%s), Value: %r",
+                            char,
+                            ",".join(char.properties),
+                            value,
                         )
+                    except Exception as e:
+                        logger.error(
+                            "  [Characteristic] %s (%s), Error: %s",
+                            char,
+                            ",".join(char.properties),
+                            e,
+                        )
+
+                else:
+                    logger.info(
+                        "  [Characteristic] %s (%s)", char, ",".join(char.properties)
                     )
+
+                for descriptor in char.descriptors:
+                    try:
+                        value = await client.read_gatt_descriptor(descriptor.handle)
+                        logger.info("    [Descriptor] %s, Value: %r", descriptor, value)
+                    except Exception as e:
+                        logger.error("    [Descriptor] %s, Error: %s", descriptor, e)
+
+        logger.info("disconnecting...")
+
+    logger.info("disconnected")
 
 
 if __name__ == "__main__":
-    address = (
-        "24:71:89:cc:09:05"
-        if platform.system() != "Darwin"
-        else "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
+    parser = argparse.ArgumentParser()
+
+    device_group = parser.add_mutually_exclusive_group(required=True)
+
+    device_group.add_argument(
+        "--name",
+        metavar="<name>",
+        help="the name of the bluetooth device to connect to",
     )
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(run(address, loop, True))
+    device_group.add_argument(
+        "--address",
+        metavar="<address>",
+        help="the address of the bluetooth device to connect to",
+    )
+
+    parser.add_argument(
+        "--macos-use-bdaddr",
+        action="store_true",
+        help="when true use Bluetooth address instead of UUID on macOS",
+    )
+
+    parser.add_argument(
+        "--services",
+        nargs="+",
+        metavar="<uuid>",
+        help="if provided, only enumerate matching service(s)",
+    )
+
+    parser.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="sets the log level to debug",
+    )
+
+    args = parser.parse_args()
+
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)-15s %(name)-8s %(levelname)s: %(message)s",
+    )
+
+    asyncio.run(main(args))

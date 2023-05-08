@@ -7,10 +7,11 @@ Created on 2019-03-19 by hbldh <henrik.blidh@nedomkull.com>
 """
 import abc
 import enum
+from typing import Any, List, Union
 from uuid import UUID
-from typing import List, Union, Any
 
-from bleak.backends.descriptor import BleakGATTDescriptor
+from ..uuids import uuidstr_to_str
+from .descriptor import BleakGATTDescriptor
 
 
 class GattCharacteristicsFlags(enum.Enum):
@@ -27,15 +28,22 @@ class GattCharacteristicsFlags(enum.Enum):
 
 
 class BleakGATTCharacteristic(abc.ABC):
-    """Interface for the Bleak representation of a GATT Characteristic
+    """Interface for the Bleak representation of a GATT Characteristic"""
 
-    """
-
-    def __init__(self, obj: Any):
+    def __init__(self, obj: Any, max_write_without_response_size: int):
+        """
+        Args:
+            obj:
+                A platform-specific object for this characteristic.
+            max_write_without_response_size:
+                The maximum size in bytes that can be written to the
+                characteristic in a single write without response command.
+        """
         self.obj = obj
+        self._max_write_without_response_size = max_write_without_response_size
 
     def __str__(self):
-        return "{0}: {1}".format(self.uuid, self.description)
+        return f"{self.uuid} (Handle: {self.handle}): {self.description}"
 
     @property
     @abc.abstractmethod
@@ -45,15 +53,26 @@ class BleakGATTCharacteristic(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def service_handle(self) -> int:
+        """The integer handle of the Service containing this characteristic"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def handle(self) -> int:
+        """The handle for this characteristic"""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
     def uuid(self) -> str:
         """The UUID for this characteristic"""
         raise NotImplementedError()
 
     @property
-    @abc.abstractmethod
     def description(self) -> str:
         """Description for this characteristic"""
-        raise NotImplementedError()
+        return uuidstr_to_str(self.uuid)
 
     @property
     @abc.abstractmethod
@@ -62,14 +81,29 @@ class BleakGATTCharacteristic(abc.ABC):
         raise NotImplementedError()
 
     @property
+    def max_write_without_response_size(self) -> int:
+        """
+        Gets the maximum size in bytes that can be used for the *data* argument
+        of :meth:`BleakClient.write_gatt_char()` when ``response=False``.
+
+        .. warning:: Linux quirk: For BlueZ versions < 5.62, this property
+            will always return ``20``.
+
+        .. versionadded:: 0.16.0
+        """
+        return self._max_write_without_response_size
+
+    @property
     @abc.abstractmethod
-    def descriptors(self) -> List:
+    def descriptors(self) -> List[BleakGATTDescriptor]:
         """List of descriptors for this service"""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_descriptor(self, _uuid: Union[str, UUID]) -> Union[BleakGATTDescriptor, None]:
-        """Get a descriptor by UUID"""
+    def get_descriptor(
+        self, specifier: Union[int, str, UUID]
+    ) -> Union[BleakGATTDescriptor, None]:
+        """Get a descriptor by handle (int) or UUID (str or uuid.UUID)"""
         raise NotImplementedError()
 
     @abc.abstractmethod

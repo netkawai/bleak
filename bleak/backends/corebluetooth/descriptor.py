@@ -4,22 +4,27 @@ Interface class for the Bleak representation of a GATT Descriptor
 Created on 2019-06-28 by kevincar <kevincarrolldavis@gmail.com>
 
 """
-from Foundation import CBDescriptor
+from CoreBluetooth import CBDescriptor
 
-from bleak.backends.descriptor import BleakGATTDescriptor
+from ..corebluetooth.utils import cb_uuid_to_str
+from ..descriptor import BleakGATTDescriptor
 
 
 class BleakGATTDescriptorCoreBluetooth(BleakGATTDescriptor):
     """GATT Descriptor implementation for CoreBluetooth backend"""
 
-    def __init__(self, obj: CBDescriptor, characteristic_uuid: str):
+    def __init__(
+        self, obj: CBDescriptor, characteristic_uuid: str, characteristic_handle: int
+    ):
         super(BleakGATTDescriptorCoreBluetooth, self).__init__(obj)
+        self.obj: CBDescriptor = obj
+        self.__characteristic_uuid: str = characteristic_uuid
+        self.__characteristic_handle: int = characteristic_handle
 
-        self.obj = obj
-        self.__characteristic_uuid = characteristic_uuid
-
-    def __str__(self):
-        return "{0}: (Handle: {1})".format(self.uuid, self.handle)
+    @property
+    def characteristic_handle(self) -> int:
+        """handle for the characteristic that this descriptor belongs to"""
+        return self.__characteristic_handle
 
     @property
     def characteristic_uuid(self) -> str:
@@ -29,7 +34,7 @@ class BleakGATTDescriptorCoreBluetooth(BleakGATTDescriptor):
     @property
     def uuid(self) -> str:
         """UUID for this descriptor"""
-        return self.obj.UUID().UUIDString()
+        return cb_uuid_to_str(self.obj.UUID())
 
     @property
     def handle(self) -> int:

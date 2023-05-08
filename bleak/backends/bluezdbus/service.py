@@ -1,8 +1,8 @@
-from uuid import UUID
-from typing import Union, List
+from typing import List
 
-from bleak.backends.service import BleakGATTService
-from bleak.backends.bluezdbus.characteristic import BleakGATTCharacteristicBlueZDBus
+from ..service import BleakGATTService
+from .characteristic import BleakGATTCharacteristicBlueZDBus
+from .utils import extract_service_handle_from_path
 
 
 class BleakGATTServiceBlueZDBus(BleakGATTService):
@@ -12,6 +12,7 @@ class BleakGATTServiceBlueZDBus(BleakGATTService):
         super().__init__(obj)
         self.__characteristics = []
         self.__path = path
+        self.__handle = extract_service_handle_from_path(path)
 
     @property
     def uuid(self) -> str:
@@ -19,15 +20,14 @@ class BleakGATTServiceBlueZDBus(BleakGATTService):
         return self.obj["UUID"]
 
     @property
+    def handle(self) -> int:
+        """The integer handle of this service"""
+        return self.__handle
+
+    @property
     def characteristics(self) -> List[BleakGATTCharacteristicBlueZDBus]:
         """List of characteristics for this service"""
         return self.__characteristics
-
-    def get_characteristic(
-        self, _uuid: Union[str, UUID]
-    ) -> Union[BleakGATTCharacteristicBlueZDBus, None]:
-        """Get a characteristic by UUID"""
-        raise NotImplementedError()
 
     def add_characteristic(self, characteristic: BleakGATTCharacteristicBlueZDBus):
         """Add a :py:class:`~BleakGATTCharacteristicBlueZDBus` to the service.

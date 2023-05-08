@@ -2,18 +2,22 @@
 bleak
 =====
 
-.. image:: https://raw.githubusercontent.com/hbldh/bleak/master/Bleak_logo.png
+.. figure:: https://raw.githubusercontent.com/hbldh/bleak/master/Bleak_logo.png
     :target: https://github.com/hbldh/bleak
     :alt: Bleak Logo
     :scale: 50%
 
 
-
-.. image:: https://dev.azure.com/hbldh/github/_apis/build/status/hbldh.bleak?branchName=master
-    :target: https://dev.azure.com/hbldh/github/_build/latest?definitionId=4&branchName=master
+.. image:: https://github.com/hbldh/bleak/workflows/Build%20and%20Test/badge.svg
+    :target: https://github.com/hbldh/bleak/actions?query=workflow%3A%22Build+and+Test%22
+    :alt: Build and Test
 
 .. image:: https://img.shields.io/pypi/v/bleak.svg
     :target: https://pypi.python.org/pypi/bleak
+
+.. image:: https://img.shields.io/pypi/dm/bleak.svg
+    :target: https://pypi.python.org/pypi/bleak
+    :alt: PyPI - Downloads
 
 .. image:: https://readthedocs.org/projects/bleak/badge/?version=latest
     :target: https://bleak.readthedocs.io/en/latest/?badge=latest
@@ -44,6 +48,7 @@ Features
 * Supports Windows 10, version 16299 (Fall Creators Update) or greater
 * Supports Linux distributions with BlueZ >= 5.43
 * OS X/macOS support via Core Bluetooth API, from at least OS X version 10.11
+* Android backend compatible with python-for-android
 
 Bleak supports reading, writing and getting notifications from
 GATT servers, as well as a function for discovering BLE devices.
@@ -56,15 +61,14 @@ To discover Bluetooth devices that can be connected to:
 .. code-block:: python
 
     import asyncio
-    from bleak import discover
+    from bleak import BleakScanner
 
-    async def run():
-        devices = await discover()
+    async def main():
+        devices = await BleakScanner.discover()
         for d in devices:
             print(d)
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(run())
+    asyncio.run(main())
 
 
 Connect to a Bluetooth device and read its model number:
@@ -77,14 +81,14 @@ Connect to a Bluetooth device and read its model number:
     address = "24:71:89:cc:09:05"
     MODEL_NBR_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
 
-    async def run(address, loop):
-        async with BleakClient(address, loop=loop) as client:
+    async def main(address):
+        async with BleakClient(address) as client:
             model_number = await client.read_gatt_char(MODEL_NBR_UUID)
             print("Model Number: {0}".format("".join(map(chr, model_number))))
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(run(address, loop))
+    asyncio.run(main(address))
 
+DO NOT NAME YOUR SCRIPT ``bleak.py``! It will cause a circular import error.
 
 See examples folder for more code, for instance example code for connecting to a
 `TI SensorTag CC2650 <http://www.ti.com/ww/en/wireless_connectivity/sensortag/>`_

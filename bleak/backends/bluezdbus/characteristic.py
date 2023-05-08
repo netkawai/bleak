@@ -1,9 +1,10 @@
+from typing import List, Union
 from uuid import UUID
-from typing import Union, List
 
-from bleak.backends.characteristic import BleakGATTCharacteristic
-from bleak.backends.descriptor import BleakGATTDescriptor
-
+from ..characteristic import BleakGATTCharacteristic
+from ..descriptor import BleakGATTDescriptor
+from .defs import GattCharacteristic1
+from .utils import extract_service_handle_from_path
 
 _GattCharacteristicsFlagsEnum = {
     0x0001: "broadcast",
@@ -29,11 +30,22 @@ _GattCharacteristicsFlagsEnum = {
 class BleakGATTCharacteristicBlueZDBus(BleakGATTCharacteristic):
     """GATT Characteristic implementation for the BlueZ DBus backend"""
 
-    def __init__(self, obj: dict, object_path: str, service_uuid: str):
-        super(BleakGATTCharacteristicBlueZDBus, self).__init__(obj)
+    def __init__(
+        self,
+        obj: GattCharacteristic1,
+        object_path: str,
+        service_uuid: str,
+        service_handle: int,
+        max_write_without_response_size: int,
+    ):
+        super(BleakGATTCharacteristicBlueZDBus, self).__init__(
+            obj, max_write_without_response_size
+        )
         self.__descriptors = []
         self.__path = object_path
         self.__service_uuid = service_uuid
+        self.__service_handle = service_handle
+        self._handle = extract_service_handle_from_path(object_path)
 
     @property
     def service_uuid(self) -> str:
@@ -41,18 +53,22 @@ class BleakGATTCharacteristicBlueZDBus(BleakGATTCharacteristic):
         return self.__service_uuid
 
     @property
+    def service_handle(self) -> int:
+        """The handle of the Service containing this characteristic"""
+        return self.__service_handle
+
+    @property
+    def handle(self) -> int:
+        """The handle of this characteristic"""
+        return self._handle
+
+    @property
     def uuid(self) -> str:
         """The uuid of this characteristic"""
         return self.obj.get("UUID")
 
     @property
-    def description(self) -> str:
-        """Description for this characteristic"""
-        # No description available in DBus backend.
-        return ""
-
-    @property
-    def properties(self) -> List:
+    def properties(self) -> List[str]:
         """Properties of this characteristic
 
         Returns the characteristics `Flags` present in the DBus API.
@@ -60,14 +76,21 @@ class BleakGATTCharacteristicBlueZDBus(BleakGATTCharacteristic):
         return self.obj["Flags"]
 
     @property
-    def descriptors(self) -> List:
+    def descriptors(self) -> List[BleakGATTDescriptor]:
         """List of descriptors for this service"""
         return self.__descriptors
 
-    def get_descriptor(self, _uuid: Union[str, UUID]) -> Union[BleakGATTDescriptor, None]:
-        """Get a descriptor by UUID"""
+    def get_descriptor(
+        self, specifier: Union[int, str, UUID]
+    ) -> Union[BleakGATTDescriptor, None]:
+        """Get a descriptor by handle (int) or UUID (str or uuid.UUID)"""
         try:
-            return next(filter(lambda x: x.uuid == _uuid, self.descriptors))
+            if isinstance(specifier, int):
+                return next(filter(lambda x: x.handle == specifier, self.descriptors))
+            else:
+                return next(
+                    filter(lambda x: x.uuid == str(specifier), self.descriptors)
+                )
         except StopIteration:
             return None
 

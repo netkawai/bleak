@@ -6,51 +6,68 @@ Wrapper class for Bluetooth LE servers returned from calling
 Created on 2018-04-23 by hbldh <henrik.blidh@nedomkull.com>
 
 """
-from ._manufacturers import MANUFACTURERS
 
 
-class BLEDevice(object):
-    """A simple wrapper class representing a BLE server detected during
-    a `discover` call.
+from typing import Any, Optional
+from warnings import warn
 
-    - When using Windows backend, `details` attribute is a
-      `Windows.Devices.Bluetooth.Advertisement.BluetoothLEAdvertisement` object, unless
-      it is created with the Windows.Devices.Enumeration discovery method, then is is a
-      `Windows.Devices.Enumeration.DeviceInformation`
-    - When using Linux backend, `details` attribute is a
-      dict with keys `path` which has the string path to the DBus device object and `props`
-      which houses the properties dictionary of the D-Bus Device.
-    - When using macOS backend, `details` attribute will be a CBPeripheral object
+
+class BLEDevice:
+    """
+    A simple wrapper class representing a BLE server detected during scanning.
     """
 
-    def __init__(self, address, name, details=None, **kwargs):
+    __slots__ = ("address", "name", "details", "_rssi", "_metadata")
+
+    def __init__(
+        self, address: str, name: Optional[str], details: Any, rssi: int, **kwargs
+    ):
+        #: The Bluetooth address of the device on this machine (UUID on macOS).
         self.address = address
-        self.name = name if name else "Unknown"
+        #: The operating system name of the device (not necessarily the local name
+        #: from the advertising data), suitable for display to the user.
+        self.name = name
+        #: The OS native details required for connecting to the device.
         self.details = details
-        self.metadata = kwargs
+
+        # for backwards compatibility
+        self._rssi = rssi
+        self._metadata = kwargs
 
     @property
-    def rssi(self):
-        """Get the signal strength in dBm"""
-        if isinstance(self.details, dict) and "props" in self.details:
-            rssi = self.details["props"].get("RSSI", 0)  # Should not be set to 0...
-        elif hasattr(self.details, "RawSignalStrengthInDBm"):
-            rssi = self.details.RawSignalStrengthInDBm
-        elif hasattr(self.details, "Properties"):
-            rssi = {p.Key: p.Value for p in self.details.Properties}['System.Devices.Aep.SignalStrength']
-        else:
-            rssi = None
-        return int(rssi) if rssi is not None else None
+    def rssi(self) -> int:
+        """
+        Gets the RSSI of the last received advertisement.
+
+        .. deprecated:: 0.19.0
+            Use :class:`AdvertisementData` from detection callback or
+            :attr:`BleakScanner.discovered_devices_and_advertisement_data` instead.
+        """
+        warn(
+            "BLEDevice.rssi is deprecated and will be removed in a future version of Bleak, use AdvertisementData.rssi instead",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return self._rssi
+
+    @property
+    def metadata(self) -> dict:
+        """
+        Gets additional advertisement data for the device.
+
+        .. deprecated:: 0.19.0
+            Use :class:`AdvertisementData` from detection callback or
+            :attr:`BleakScanner.discovered_devices_and_advertisement_data` instead.
+        """
+        warn(
+            "BLEDevice.metadata is deprecated and will be removed in a future version of Bleak, use AdvertisementData instead",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return self._metadata
 
     def __str__(self):
-        if self.name == "Unknown":
-            if "manufacturer_data" in self.metadata:
-                ks = list(self.metadata["manufacturer_data"].keys())
-                if len(ks):
-                    mf = MANUFACTURERS.get(ks[0], MANUFACTURERS.get(0xffff))
-                    value = self.metadata["manufacturer_data"].get(
-                        ks[0], MANUFACTURERS.get(0xffff)
-                    )
-                    # TODO: Evaluate how to interpret the value of the company identifier...
-                    return "{0}: {1} ({2})".format(self.address, mf, value)
-        return "{0}: {1}".format(self.address, self.name)
+        return f"{self.address}: {self.name}"
+
+    def __repr__(self):
+        return f"BLEDevice({self.address}, {self.name})"

@@ -1,19 +1,36 @@
 import logging
-import asyncio
-import pathlib
-import uuid
-from asyncio.events import AbstractEventLoop
-from typing import Callable, Any, Union, List
+import sys
+from typing import Any, Dict, List, Optional
 
-from bleak.backends.corebluetooth import CBAPP as cbapp
-from bleak.backends.device import BLEDevice
-from bleak.exc import BleakError
-from bleak.backends.scanner import BaseBleakScanner
-from functools import partial
+if sys.version_info[:2] < (3, 8):
+    from typing_extensions import Literal, TypedDict
+else:
+    from typing import Literal, TypedDict
 
+import objc
+from CoreBluetooth import CBPeripheral
+from Foundation import NSBundle
+
+from ...exc import BleakError
+from ..scanner import AdvertisementData, AdvertisementDataCallback, BaseBleakScanner
+from .CentralManagerDelegate import CentralManagerDelegate
+from .utils import cb_uuid_to_str
 
 logger = logging.getLogger(__name__)
-_here = pathlib.Path(__file__).parent
+
+
+class CBScannerArgs(TypedDict, total=False):
+    """
+    Platform-specific :class:`BleakScanner` args for the CoreBluetooth backend.
+    """
+
+    use_bdaddr: bool
+    """
+    If true, use Bluetooth address instead of UUID.
+
+    .. warning:: This uses an undocumented IOBluetooth API to get the Bluetooth
+        address and may break in the future macOS releases.
+    """
 
 
 class BleakScannerCoreBluetooth(BaseBleakScanner):
@@ -22,89 +39,146 @@ class BleakScannerCoreBluetooth(BaseBleakScanner):
     Documentation:
     https://developer.apple.com/documentation/corebluetooth/cbcentralmanager
 
-    CoreBluetooth doesn't explicitly use MAC addresses to identify peripheral
-    devices because private devices may obscure their MAC addresses. To cope
+    CoreBluetooth doesn't explicitly use Bluetooth addresses to identify peripheral
+    devices because private devices may obscure their Bluetooth addresses. To cope
     with this, CoreBluetooth utilizes UUIDs for each peripheral. Bleak uses
     this for the BLEDevice address on macOS.
 
     Args:
-        loop (asyncio.events.AbstractEventLoop): The event loop to use.
-
+        detection_callback:
+            Optional function that will be called each time a device is
+            discovered or advertising data has changed.
+        service_uuids:
+            Optional list of service UUIDs to filter on. Only advertisements
+            containing this advertising data will be received. Required on
+            macOS >= 12.0, < 12.3 (unless you create an app with ``py2app``).
+        scanning_mode:
+            Set to ``"passive"`` to avoid the ``"active"`` scanning mode. Not
+            supported on macOS! Will raise :class:`BleakError` if set to
+            ``"passive"``
+        **timeout (float):
+             The scanning timeout to be used, in case of missing
+            ``stopScan_`` method.
     """
-    def __init__(self, loop: AbstractEventLoop = None, **kwargs):
-        super(BleakScannerCoreBluetooth, self).__init__(loop, **kwargs)
-        logger.info("BleakScannerCoreBluetooth Scanner")
 
-        if not cbapp.central_manager_delegate.enabled:
-            raise BleakError("Bluetooth device is turned off")
+    def __init__(
+        self,
+        detection_callback: Optional[AdvertisementDataCallback],
+        service_uuids: Optional[List[str]],
+        scanning_mode: Literal["active", "passive"],
+        *,
+        cb: CBScannerArgs,
+        **kwargs
+    ):
+        super(BleakScannerCoreBluetooth, self).__init__(
+            detection_callback, service_uuids
+        )
 
-        self._filters = kwargs.get("filters", {})
+        self._use_bdaddr = cb.get("use_bdaddr", False)
 
-        self._callback = None
-        self._found = []
+        if scanning_mode == "passive":
+            raise BleakError("macOS does not support passive scanning")
 
+        self._manager = CentralManagerDelegate.alloc().init()
+        self._timeout: float = kwargs.get("timeout", 5.0)
+        if (
+            objc.macos_available(12, 0)
+            and not objc.macos_available(12, 3)
+            and not self._service_uuids
+        ):
+            # See https://github.com/hbldh/bleak/issues/720
+            if NSBundle.mainBundle().bundleIdentifier() == "org.python.python":
+                logger.error(
+                    "macOS 12.0, 12.1 and 12.2 require non-empty service_uuids kwarg, otherwise no advertisement data will be received"
+                )
 
-    def discovered(self, device):
-        logger.info("scanner discovered: {0}".format(device))
-        self._found.append(device)
-        if self._callback != None:
-            self._callback(device)
+    async def start(self) -> None:
+        self.seen_devices = {}
 
-    async def start(self):
-        # Don't reset/restart if already scanning 
-        if await self.is_scanning: 
-            return 
-        self._found = []
-        cbapp.central_manager_delegate.setdiscovercallback_(self.discovered)        
-        await cbapp.central_manager_delegate.scanForPeripherals_({"timeout":None, "filters":self._filters})
+        def callback(p: CBPeripheral, a: Dict[str, Any], r: int) -> None:
 
-    async def stop(self):
-        cbapp.central_manager_delegate.central_manager.stopScan()
-        cbapp.central_manager_delegate.setdiscovercallback_(None)
+            # Process service data
+            service_data_dict_raw = a.get("kCBAdvDataServiceData", {})
+            service_data = {
+                cb_uuid_to_str(k): bytes(v) for k, v in service_data_dict_raw.items()
+            }
 
-    async def set_scanning_filter(self, **kwargs):
-        self._filters = kwargs.get("filters", {})
+            # Process manufacturer data into a more friendly format
+            manufacturer_binary_data = a.get("kCBAdvDataManufacturerData")
+            manufacturer_data = {}
+            if manufacturer_binary_data:
+                manufacturer_id = int.from_bytes(
+                    manufacturer_binary_data[0:2], byteorder="little"
+                )
+                manufacturer_value = bytes(manufacturer_binary_data[2:])
+                manufacturer_data[manufacturer_id] = manufacturer_value
 
-    async def get_discovered_devices(self) -> List[BLEDevice]:
-        # TODO: Figure out consistent returned devices
-        # found = []
-        # peripherals = cbapp.central_manager_delegate.devices
+            service_uuids = [
+                cb_uuid_to_str(u) for u in a.get("kCBAdvDataServiceUUIDs", [])
+            ]
 
-        # for i, peripheral in enumerate(peripherals):
-        #     address = peripheral.identifier().UUIDString()
-        #     name = peripheral.name() or "Unknown"
-        #     details = peripheral
+            # set tx_power data if available
+            tx_power = a.get("kCBAdvDataTxPowerLevel")
 
-        #     advertisementData = cbapp.central_manager_delegate.advertisement_data_list[i]
-        #     manufacturer_binary_data = advertisementData.get("kCBAdvDataManufacturerData")
-        #     manufacturer_data = {}
-        #     if manufacturer_binary_data:
-        #         manufacturer_id = int.from_bytes(
-        #             manufacturer_binary_data[0:2], byteorder="little"
-        #         )
-        #         manufacturer_value = bytes(manufacturer_binary_data[2:])
-        #         manufacturer_data = {manufacturer_id: manufacturer_value}
+            advertisement_data = AdvertisementData(
+                local_name=a.get("kCBAdvDataLocalName"),
+                manufacturer_data=manufacturer_data,
+                service_data=service_data,
+                service_uuids=service_uuids,
+                tx_power=tx_power,
+                rssi=r,
+                platform_data=(p, a, r),
+            )
 
-        #     uuids = [
-        #         # converting to lower case to match other platforms
-        #         str(u).lower()
-        #         for u in advertisementData.get("kCBAdvDataServiceUUIDs", [])
-        #     ]
+            if self._use_bdaddr:
+                # HACK: retrieveAddressForPeripheral_ is undocumented but seems to do the trick
+                address_bytes: bytes = (
+                    self._manager.central_manager.retrieveAddressForPeripheral_(p)
+                )
+                address = address_bytes.hex(":").upper()
+            else:
+                address = p.identifier().UUIDString()
 
-        #     found.append(
-        #         BLEDevice(
-        #             address, name, details, uuids=uuids, manufacturer_data=manufacturer_data
-        #         )
-        #     )
+            device = self.create_or_update_device(
+                address,
+                p.name(),
+                (p, self._manager.central_manager.delegate()),
+                advertisement_data,
+            )
 
-        return self._found
+            if not self._callback:
+                return
 
-    def register_detection_callback(self, callback: Callable):
-        self._callback = callback
+            self._callback(device, advertisement_data)
+
+        self._manager.callbacks[id(self)] = callback
+        await self._manager.start_scan(self._service_uuids)
+
+    async def stop(self) -> None:
+        await self._manager.stop_scan()
+        self._manager.callbacks.pop(id(self), None)
+
+    def set_scanning_filter(self, **kwargs) -> None:
+        """Set scanning filter for the scanner.
+
+        .. note::
+
+            This is not implemented for macOS yet.
+
+        Raises:
+
+           ``NotImplementedError``
+
+        """
+        raise NotImplementedError(
+            "Need to evaluate which macOS versions to support first..."
+        )
 
 
     @property
-    async def is_scanning(self):
-        return cbapp.central_manager_delegate.central_manager.isScanning()
-
-
+    def is_scanning(self):
+        # TODO: Evaluate if newer macOS than 10.11 has isScanning.
+        try:
+            return self._manager.isScanning_
+        except Exception:
+            return None

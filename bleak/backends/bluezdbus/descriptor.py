@@ -1,14 +1,27 @@
-from bleak.backends.descriptor import BleakGATTDescriptor
+from ..descriptor import BleakGATTDescriptor
+from .defs import GattDescriptor1
 
 
 class BleakGATTDescriptorBlueZDBus(BleakGATTDescriptor):
     """GATT Descriptor implementation for BlueZ DBus backend"""
 
-    def __init__(self, obj: dict, object_path: str, characteristic_uuid: str):
+    def __init__(
+        self,
+        obj: GattDescriptor1,
+        object_path: str,
+        characteristic_uuid: str,
+        characteristic_handle: int,
+    ):
         super(BleakGATTDescriptorBlueZDBus, self).__init__(obj)
         self.__path = object_path
         self.__characteristic_uuid = characteristic_uuid
+        self.__characteristic_handle = characteristic_handle
         self.__handle = int(self.path.split("/")[-1].replace("desc", ""), 16)
+
+    @property
+    def characteristic_handle(self) -> int:
+        """Handle for the characteristic that this descriptor belongs to"""
+        return self.__characteristic_handle
 
     @property
     def characteristic_uuid(self) -> str:
