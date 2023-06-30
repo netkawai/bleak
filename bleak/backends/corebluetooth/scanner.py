@@ -174,7 +174,6 @@ class BleakScannerCoreBluetooth(BaseBleakScanner):
             "Need to evaluate which macOS versions to support first..."
         )
 
-    # macOS specific methods
 
     @property
     def is_scanning(self):

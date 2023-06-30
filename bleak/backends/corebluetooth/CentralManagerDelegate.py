@@ -114,6 +114,19 @@ class CentralManagerDelegate(NSObject):
                 pass
 
     # User defined functions
+    def setdiscovercallback_(self, callback):
+        if callback!=None:
+            self._discovercb = weakref.WeakMethod(callback)
+        else:
+            self._discovercb = None
+
+
+    # User defined functions
+    def removeclient_(self, client):
+        if client.address in self._clients:
+            otherClient = self._clients[client.address]
+            if id(otherClient) == id(client):
+                del self._clients[client.address]
 
     @objc.python_method
     async def start_scan(self, service_uuids) -> None:
@@ -126,8 +139,10 @@ class CentralManagerDelegate(NSObject):
         )
 
         self.central_manager.scanForPeripheralsWithServices_options_(
-            service_uuids, None
+            service_uuids, NSDictionary.dictionaryWithDictionary_({CBCentralManagerScanOptionAllowDuplicatesKey:allow_duplicates})
+            # service_uuids, {CBCentralManagerScanOptionAllowDuplicatesKey:allow_duplicates}
         )
+            # service_uuids, NSDictionary.dictionaryWithDictionary_({CBCentralManagerScanOptionAllowDuplicatesKey:allow_duplicates})
 
         # The `isScanning` property was added in macOS 10.13, so before that
         # just waiting some will have to do.
@@ -259,6 +274,25 @@ class CentralManagerDelegate(NSObject):
         # CBCentralManagerScanOptionAllowDuplicatesKey global setting.
 
         uuid_string = peripheral.identifier().UUIDString()
+        logger.debug("Discovered device {}: {} @ RSSI: {} (kCBAdvData {})".format(
+                uuid_string, peripheral.name() or None, RSSI, advertisementData.keys()))
+
+        # Filtering 
+        min_rssi = self._filters.get("RSSI", None)
+        max_pathloss = self._filters.get("Pathloss", None)
+
+        rssi = float(RSSI)
+        if min_rssi is not None and rssi<min_rssi:
+            logger.debug("Device doesn't meet minimum RSSI  ({} < {})".format(rssi, min_rssi))
+            return
+        # Compute path loss if there's a TX 
+
+        if "CBAdvertisementDataTxPowerLevelKey" in advertisementData:
+            tx_power_level = float(advertisementData["CBAdvertisementDataTxPowerLevelKey"])
+            pathloss = tx_power_level - rssi 
+            if pathloss > max_pathloss:
+                logger.debug("Device pathloss too great  (tx ({}) - rssi ({}) > {})".format(tx_power_level, rssi, pathloss))
+                return
 
         for callback in self.callbacks.values():
             if callback:

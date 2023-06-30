@@ -70,6 +70,12 @@ class BleakClientCoreBluetooth(BaseBleakClient):
             else None
         )
 
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Call base class to cleanup (disconnect)
+        await super(BleakClientCoreBluetooth, self).__aexit__(exc_type, exc_val, exc_tb)
+        # Remove this from the dictionary of clients
+        cbapp.central_manager_delegate.removeclient_(self)
+        
     def __str__(self):
         return "BleakClientCoreBluetooth ({})".format(self.address)
 
@@ -126,7 +132,7 @@ class BleakClientCoreBluetooth(BaseBleakClient):
 
         # Now get services
         await self.get_services()
-
+        
         return True
 
     async def disconnect(self) -> bool:

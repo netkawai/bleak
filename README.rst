@@ -2,6 +2,10 @@
 bleak
 =====
 
+This is my personal repo to keep both scan-filter samples and bleak latest verion.
+_________________________________________________________________________________
+If you looking for the official go to https://github.com/hbldh/bleak
+
 .. figure:: https://raw.githubusercontent.com/hbldh/bleak/master/Bleak_logo.png
     :target: https://github.com/hbldh/bleak
     :alt: Bleak Logo

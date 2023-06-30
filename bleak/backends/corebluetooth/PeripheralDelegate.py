@@ -26,6 +26,8 @@ from CoreBluetooth import (
     CBDescriptor,
     CBCharacteristicWriteWithResponse,
 )
+from CoreBluetooth import CBCharacteristicWriteWithResponse
+
 
 from ...exc import BleakError
 from ..client import NotifyCallback
